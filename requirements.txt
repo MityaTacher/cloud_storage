@@ -3,3 +3,9 @@ uvicorn
 sqlalchemy
 pydantic-settings
 pydantic
+pydantic[email]
+asyncpg
+alembic
+passlib
+aiofiles
+python-multipart

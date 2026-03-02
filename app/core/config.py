@@ -6,7 +6,7 @@ class Settings(BaseSettings):
         env_file='.env',
         env_file_encoding='utf-8',
         case_sensitive=False,
-        extra='forbid'
+        extra='ignore'
     )
 
     database_url: str = Field(
@@ -14,6 +14,8 @@ class Settings(BaseSettings):
         validation_alias='DATABASE_URL'
     )
     log_level: str = 'INFO'
+
+    upload_dir: str = 'upload/'
 
 
 settings = Settings()
