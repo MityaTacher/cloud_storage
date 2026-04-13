@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.models.files import File
+    from app.models.token import RefreshToken
 
 
 class User(Base):
@@ -22,3 +23,4 @@ class User(Base):
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     files: Mapped[list['File']] = relationship('File', back_populates='user', cascade="all, delete-orphan")
+    refresh_tokens: Mapped[list['RefreshToken']] = relationship('RefreshToken', back_populates='user')

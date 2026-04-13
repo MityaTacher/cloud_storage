@@ -17,5 +17,10 @@ class Settings(BaseSettings):
 
     upload_dir: str = 'upload/'
 
+    algorithm: str = 'SH256'
+    secret_key: str = '32 symbols'
+
+    access_token_expires_minutes: int = 15
+    refresh_token_expires_days: int = 30
 
 settings = Settings()

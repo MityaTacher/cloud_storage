@@ -26,3 +26,4 @@ async def save_file(file: UploadFile) -> FileMetadata:
         size_bytes=size_bytes
     )
     return new_file
+
