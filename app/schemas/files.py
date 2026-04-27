@@ -1,6 +1,8 @@
 from pydantic import Field, BaseModel, ByteSize, ConfigDict
 from datetime import datetime
 
+import uuid
+
 
 class FileMetadata(BaseModel):
     """
@@ -9,6 +11,8 @@ class FileMetadata(BaseModel):
     filename: str
     filepath: str
     size_bytes: int
+    parent_uid: uuid.UUID | None
+    access: int
 
 
 class FileBase(BaseModel):
@@ -36,3 +40,6 @@ class File(FileBase):
     # path: FilePath = Field(description='Путь, где сохранен файл')
     size_bytes: ByteSize = Field(description='Размер файла')
     loaded_at: datetime = Field(description='Время загрузки файла')
+    access_level: int = Field(ge=0, le=1, description='Права доступа')
+    uid: uuid.UUID = Field(default=lambda: uuid.uuid4(), description='Публичная ссылка на файл')
+    parent_uid: uuid.UUID | None = Field(description='В какой папке находится')

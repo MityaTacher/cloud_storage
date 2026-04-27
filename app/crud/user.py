@@ -1,12 +1,13 @@
+import uuid
+
 from fastapi import HTTPException, status, Depends
 
 from sqlalchemy import select, or_, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-import app.db.session
-from app.models import UserModel, FileModel, TokenModel
-from app.schemas import UserCreate
+from app.models import UserModel, FileModel, TokenModel, DirectoryModel
+from app.schemas import UserCreate, DirectoryRoot
 from app.services.auth import (
     hash_password,
     decode_token
@@ -150,7 +151,7 @@ async def get_user_by_id(
     tmp = await session.scalars(select(UserModel).where(UserModel.id == user_id))
     db_user = tmp.first()
     if db_user is None:
-        raise HTTPException(status_code=404, detail='User not found')
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
     return db_user
 
 
@@ -163,6 +164,26 @@ async def get_user_files(
         .where(FileModel.user_id == user_id)
     )
     return tmp.all()
+
+
+async def get_root(
+        session: AsyncSession,
+        user: UserModel
+) -> DirectoryRoot:
+    tmp = await session.scalars(
+        select(DirectoryModel)
+        .where(DirectoryModel.user_id == user.id)
+        .where(DirectoryModel.parent_uid.is_(None))
+    )
+    res_directories = list(tmp.all())
+    tmp1 = await session.scalars(
+        select(FileModel)
+        .where(FileModel.user_id == user.id)
+        .where(FileModel.parent_uid.is_(None))
+    )
+    res_files = list(tmp1.all())
+    return DirectoryRoot(children=res_directories, files=res_files)
+
 
 
 async def create_user(
@@ -193,7 +214,7 @@ async def create_user(
         email=user.email,
         hashed_password=hash_password(user.password.get_secret_value()),
         username=user.username,
-        role='admin'
+        role='user'
     )
 
     session.add(new_user)
@@ -223,9 +244,4 @@ async def delete_user(
         )
     await session.delete(db_user)
     await session.commit()
-
-# 4 - граф матрицы сменить добавить
-# 5 - -||- -||- -||-
-# P - 2 главы, (теория, практика) презентация, 4 стр доклад? курсач хз хз.
-#
 

@@ -1,5 +1,6 @@
 import aiofiles
 import os
+import uuid
 
 from fastapi import UploadFile
 
@@ -8,7 +9,7 @@ from app.schemas.files import FileMetadata
 
 import logging
 
-async def save_file(file: UploadFile) -> FileMetadata:
+async def save_file(file: UploadFile, parent_uid: uuid.UUID | None) -> FileMetadata:
     os.makedirs(settings.upload_dir, exist_ok=True)
 
     filepath = os.path.join(settings.upload_dir, file.filename)
@@ -23,7 +24,9 @@ async def save_file(file: UploadFile) -> FileMetadata:
     new_file = FileMetadata(
         filename=file.filename,
         filepath=filepath,
-        size_bytes=size_bytes
+        size_bytes=size_bytes,
+        parent_uid=parent_uid,
+        access=0
     )
     return new_file
 

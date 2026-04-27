@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_async_session
-from app.schemas import UserSchema, UserCreate, FileSchema, RefreshTokenRequest
+from app.schemas import UserSchema, UserCreate, FileSchema, RefreshTokenRequest, DirectoryRoot
 from app.models import UserModel
 
 from app.crud.user import (
@@ -12,13 +12,13 @@ from app.crud.user import (
     get_user_by_id,
     get_user_files,
     create_user,
-    change_user_role,
     delete_user,
     login,
     refresh,
     get_current_user,
     get_current_admin,
-    check_user_permissions
+    check_user_permissions,
+    get_root
 )
 
 
@@ -47,7 +47,19 @@ async def get_users_endpoint(
         db: AsyncSession = Depends(get_async_session),
         user: UserModel = Depends(get_current_admin),
 ):
+    """
+    ADMIN ONLY
+    """
     return await get_users(db)
+
+
+
+@router.get('/cloud', status_code=status.HTTP_200_OK)
+async def get_root_endpoint(
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
+):
+    return await get_root(db, user)
 
 
 @router.get('/{user_id}', status_code=status.HTTP_200_OK, response_model=UserSchema)
@@ -56,7 +68,9 @@ async def get_user_endpoint(
         db: AsyncSession = Depends(get_async_session),
         user: UserModel = Depends(get_current_user)
 ):
-
+    """
+    USER ONLY
+    """
     await check_user_permissions(user_id, user, allow_admin=True)
 
     return await get_user_by_id(user_id, db)
@@ -68,6 +82,9 @@ async def get_user_files_endpoint(
         db: AsyncSession = Depends(get_async_session),
         user: UserModel = Depends(get_current_user)
 ):
+    """
+    USER ADMIN
+    """
     await check_user_permissions(user_id, user, allow_admin=True)
 
     return await get_user_files(user_id, db)
@@ -78,6 +95,9 @@ async def create_user_endpoint(
         user: UserCreate,
         db: AsyncSession = Depends(get_async_session)
 ):
+    """
+    ANY USER
+    """
     return await create_user(user, db)
 
 
@@ -87,8 +107,9 @@ async def delete_user_endpoint(
         db: AsyncSession = Depends(get_async_session),
         user: UserModel = Depends(get_current_user)
 ):
+    """
+    USER ONLY
+    """
     await check_user_permissions(user_id, user, allow_admin=True)
-
     await delete_user(user_id, db, user)
 
-#TODO update endpoints
