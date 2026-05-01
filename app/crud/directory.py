@@ -121,12 +121,42 @@ async def create_new_directory(
     return await get_directory_with_relations(new_directory.uid, session)
 
 
+async def _delete_directory_files_recursively(dir_uid: uuid.UUID, session: AsyncSession):
+    """
+    Рекурсивно обходит все подпапки и удаляет физические файлы с жесткого диска.
+    """
+    stmt = (
+        select(DirectoryModel)
+        .where(DirectoryModel.uid == dir_uid)
+        .options(
+            selectinload(DirectoryModel.files),
+            selectinload(DirectoryModel.children)
+        )
+    )
+    dir_obj = (await session.scalars(stmt)).first()
+    
+    if not dir_obj:
+        return
+
+    for f in dir_obj.files:
+        try:
+            if os.path.exists(f.path):
+                os.remove(f.path)
+        except Exception as e:
+            print(f"Ошибка при удалении файла {f.path}: {e}")
+
+    for child in dir_obj.children:
+        await _delete_directory_files_recursively(child.uid, session)
+
+
 async def delete_directory(
         directory_uid: uuid.UUID,
         session: AsyncSession,
         user: UserModel
 ) -> None:
     db_directory = await check_directory_permission(directory_uid, session, user)
+
+    await _delete_directory_files_recursively(directory_uid, session)
 
     await session.delete(db_directory)
     await session.commit()
