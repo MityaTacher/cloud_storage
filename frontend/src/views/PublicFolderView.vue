@@ -4,14 +4,15 @@ import { useRoute } from 'vue-router'
 import { cloudApi } from '@/api/cloud'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
-import type { Directory, CloudFile, DirectoryBase } from '@/types'
+import type { Directory, CloudFile } from '@/types'
 
 const route = useRoute()
 const auth = useAuthStore()
 const toast = useToastStore()
-const public_link = route.params.public_link as string
+const initial_public_link = route.params.public_link as string
 
 const folder = ref<Directory | null>(null)
+const breadcrumbs = ref<Directory[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const savingFileIds = ref<Set<number>>(new Set())
@@ -53,7 +54,8 @@ async function saveFolderToMyCloud() {
   if (!folder.value) return
   savingFolder.value = true
   try {
-    await cloudApi.savePublicFolder(public_link)
+    // Сохраняем именно текущую открытую папку
+    await cloudApi.savePublicFolder(folder.value.public_link)
     toast.success(`Folder "${folder.value.name}" saved to your cloud!`)
   } catch (e: any) {
     toast.error(e?.response?.data?.detail ?? 'Failed to save folder')
@@ -62,15 +64,31 @@ async function saveFolderToMyCloud() {
   }
 }
 
-onMounted(async () => {
+async function fetchFolder(link: string) {
+  loading.value = true
+  error.value = null
   try {
-    const { data } = await cloudApi.getPublicFolderMeta(public_link)
+    const { data } = await cloudApi.getPublicFolderMeta(link)
     folder.value = data
+
+    // Обновляем хлебные крошки (историю навигации)
+    const crumbIdx = breadcrumbs.value.findIndex(b => b.public_link === link)
+    if (crumbIdx !== -1) {
+      // Возвращаемся назад: обрезаем массив до нужного элемента
+      breadcrumbs.value = breadcrumbs.value.slice(0, crumbIdx + 1)
+    } else {
+      // Идем вглубь: добавляем папку
+      breadcrumbs.value.push(data)
+    }
   } catch {
     error.value = 'This folder is not available or has been made private.'
   } finally {
     loading.value = false
   }
+}
+
+onMounted(() => {
+  fetchFolder(initial_public_link)
 })
 </script>
 
@@ -118,9 +136,23 @@ onMounted(async () => {
         <!-- Header -->
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:28px">
           <div style="font-size:42px;line-height:1">📁</div>
-          <div style="flex:1">
-            <h1 style="font-size:24px;font-weight:800;color:var(--color-text-primary)">{{ folder.name }}</h1>
-            <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+          <div style="flex:1;min-width:0">
+            
+            <!-- Breadcrumbs -->
+            <nav style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px">
+              <template v-for="(crumb, idx) in breadcrumbs" :key="crumb.uid">
+                <span
+                  class="header-crumb"
+                  :class="{ active: idx === breadcrumbs.length - 1 }"
+                  @click="idx < breadcrumbs.length - 1 && fetchFolder(crumb.public_link)"
+                >
+                  {{ crumb.name }}
+                </span>
+                <i v-if="idx < breadcrumbs.length - 1" class="pi pi-chevron-right crumb-sep" />
+              </template>
+            </nav>
+
+            <div style="display:flex;align-items:center;gap:10px">
               <span class="badge badge-public"><i class="pi pi-globe" style="margin-right:4px" />Public folder</span>
               <span style="font-size:13px;color:var(--color-text-muted)">
                 {{ folder.children.length }} folder{{ folder.children.length !== 1 ? 's' : '' }} ·
@@ -130,8 +162,9 @@ onMounted(async () => {
           </div>
           
           <div style="margin-left: auto; display:flex; gap: 10px;">
+             <!-- Скачивание ИМЕННО текущей папки -->
              <a 
-                :href="cloudApi.getPublicFolderDirectDownload(public_link)" 
+                :href="cloudApi.getPublicFolderDirectDownload(folder.public_link)" 
                 class="btn btn-ghost" 
                 download
              >
@@ -168,7 +201,8 @@ onMounted(async () => {
             <div
               v-for="child in folder.children"
               :key="child.uid"
-              class="public-row"
+              class="public-row clickable-folder"
+              @click="fetchFolder(child.public_link)"
             >
               <span style="font-size:22px">📁</span>
               <span style="flex:1;font-size:14px;font-weight:500;color:var(--color-text-primary)">
@@ -274,5 +308,35 @@ onMounted(async () => {
 .public-row:hover {
   background: var(--color-bg-hover);
   border-color: var(--color-border);
+}
+
+/* Кликабельная строка папки */
+.clickable-folder {
+  cursor: pointer;
+}
+
+/* Стили для хлебных крошек в шапке папки */
+.header-crumb {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+.header-crumb:hover {
+  color: var(--color-accent);
+}
+.header-crumb.active {
+  color: var(--color-text-primary);
+  cursor: default;
+}
+.header-crumb.active:hover {
+  color: var(--color-text-primary); /* отключаем цвет ховера для активной/текущей папки */
+}
+.crumb-sep {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  margin-top: 2px;
 }
 </style>
