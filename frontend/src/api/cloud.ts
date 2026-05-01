@@ -34,7 +34,12 @@ export const cloudApi = {
     onProgress?: (pct: number) => void,
   ): Promise<{ data: CloudFile }> {
     const form = new FormData()
-    form.append('file', file)
+    
+    // ВАЖНО: Очищаем имя от относительных путей (webkitRelativePath),
+    // чтобы бэкенд не пытался сохранять файлы в несуществующие подпапки
+    const safeFilename = file.name.replace(/^.*[\\\/]/, '')
+    form.append('file', file, safeFilename)
+    
     const params = parent_uid ? `?parent_uid=${parent_uid}` : ''
     return api.post(`/files/${params}`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },

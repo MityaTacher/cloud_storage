@@ -89,17 +89,24 @@ export const useFileStore = defineStore('files', () => {
     }
   }
 
-  async function uploadFile(file: File) {
+  // Обновлен: принимает целевую папку, чтобы можно было загружать файлы в подпапки рекурсивно
+  async function uploadFile(file: File, overrideParentUid?: string | null) {
+    const targetUid = overrideParentUid !== undefined ? overrideParentUid : currentFolderUid.value
     const taskId = crypto.randomUUID()
     const task: UploadTask = { id: taskId, name: file.name, progress: 0, done: false, error: false }
     uploads.value.push(task)
 
     try {
-      const { data } = await cloudApi.uploadFile(file, currentFolderUid.value, (pct) => {
+      const { data } = await cloudApi.uploadFile(file, targetUid, (pct) => {
         const t = uploads.value.find((u) => u.id === taskId)
         if (t) t.progress = pct
       })
-      files.value.push(data)
+      
+      // Добавляем визуально, только если мы прямо сейчас смотрим в эту же папку
+      if (targetUid === currentFolderUid.value) {
+        files.value.push(data)
+      }
+      
       const t = uploads.value.find((u) => u.id === taskId)
       if (t) t.done = true
       setTimeout(() => {
