@@ -19,7 +19,8 @@ from app.crud.directory import (
     change_directory_access_level, 
     get_public_directory,
     save_public_directory_to_cloud,
-    generate_directory_zip
+    generate_directory_zip,
+    rename_directory
 )
 
 router = APIRouter(
@@ -51,12 +52,18 @@ async def create_new_directory_endpoint(
     return await create_new_directory(parent_uid, name, user, session)
 
 
-@router.put('/{directory_uid}', status_code=status.HTTP_200_OK, response_model=DirectorySchema)
-async def change_directory_endpoint(
-        name: str | None,
-        parent_uid: uuid.UUID | None,
+@router.patch('/{directory_uid}/rename', status_code=status.HTTP_200_OK, response_model=DirectorySchema)
+async def rename_directory_endpoint(
+        directory_uid: uuid.UUID,
+        new_name: str,
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
 ):
-    return 'change'
+    """
+    USER ONLY
+    Переименовать папку
+    """
+    return await rename_directory(directory_uid, new_name, db, user)
 
 
 @router.delete('/{directory_uid}', status_code=status.HTTP_204_NO_CONTENT)

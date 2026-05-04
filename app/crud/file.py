@@ -252,7 +252,6 @@ async def save_public_file_to_cloud(
     
     db_file = await get_public_file(file_uid, session)
     
-    # Проверка на существование файла в корневой директории пользователя
     existing_file = await session.scalars(
         select(FileModel)
         .where(FileModel.user_id == user.id)
@@ -281,3 +280,29 @@ async def save_public_file_to_cloud(
     await session.commit()
     await session.refresh(new_db_file)
     return new_db_file
+
+
+async def rename_file(
+        file_id: int,
+        new_name: str,
+        session: AsyncSession,
+        user: UserModel
+) -> FileModel:
+    db_file = await check_file_permission(file_id, session, user)
+    
+    existing_file = await session.scalars(
+        select(FileModel)
+        .where(FileModel.user_id == user.id)
+        .where(FileModel.parent_uid == db_file.parent_uid)
+        .where(FileModel.filename == new_name)
+    )
+    if existing_file.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'File "{new_name}" already exists in this folder'
+        )
+        
+    db_file.filename = new_name
+    await session.commit()
+    await session.refresh(db_file)
+    return db_file

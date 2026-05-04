@@ -18,7 +18,8 @@ from app.crud.file import (
     download_public_file,
     get_public_file,
     move_file,
-    save_public_file_to_cloud
+    save_public_file_to_cloud,
+    rename_file
 )
 
 from app.crud.user import get_current_user, get_current_admin
@@ -159,3 +160,16 @@ async def save_public_file_endpoint(
     Сохранить публичный файл в свое облако (в корневую папку)
     """
     return await save_public_file_to_cloud(uid, db, user)
+
+@router.patch('/{file_id}/rename', status_code=status.HTTP_200_OK, response_model=FileSchema)
+async def rename_file_endpoint(
+        file_id: int,
+        new_name: str,
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
+):
+    """
+    USER ONLY
+    Переименовать файл
+    """
+    return await rename_file(file_id, new_name, db, user)

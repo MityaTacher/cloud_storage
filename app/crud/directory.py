@@ -351,3 +351,27 @@ async def generate_directory_zip(
                 zipf.write(physical_path, archive_path)
 
     return temp_zip_path, db_dir.name
+
+async def rename_directory(
+        directory_uid: uuid.UUID,
+        new_name: str,
+        session: AsyncSession,
+        user: UserModel
+) -> DirectorySchema:
+    db_directory = await check_directory_permission(directory_uid, session, user)
+
+    existing_dir = await session.scalars(
+        select(DirectoryModel)
+        .where(DirectoryModel.user_id == user.id)
+        .where(DirectoryModel.parent_uid == db_directory.parent_uid)
+        .where(DirectoryModel.name == new_name)
+    )
+    if existing_dir.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'Folder "{new_name}" already exists'
+        )
+
+    db_directory.name = new_name
+    await session.commit()
+    return await get_directory_with_relations(db_directory.uid, session)
