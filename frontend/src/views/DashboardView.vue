@@ -13,6 +13,7 @@ import FolderCard from '@/components/FolderCard.vue'
 import NewFolderModal from '@/components/NewFolderModal.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import DeleteModal from '@/components/DeleteModal.vue'
+import RenameModal from '@/components/RenameModal.vue'
 
 const store = useFileStore()
 const toast = useToastStore()
@@ -22,6 +23,7 @@ const theme = useThemeStore()
 const showNewFolder = ref(false)
 const shareTarget = ref<{ item: CloudFile | DirectoryBase; type: 'file' | 'folder' } | null>(null)
 const deleteTarget = ref<{ item: CloudFile | DirectoryBase; type: 'file' | 'folder' } | null>(null)
+const renameTarget = ref<{ item: CloudFile | DirectoryBase; type: 'file' | 'folder' } | null>(null)
 
 // ── Drag-and-drop ──
 const dragOver = ref(false)
@@ -195,6 +197,8 @@ function shareFile(file: CloudFile) { shareTarget.value = { item: file, type: 'f
 function shareFolder(folder: DirectoryBase) { shareTarget.value = { item: folder, type: 'folder' } }
 function deleteFile(file: CloudFile) { deleteTarget.value = { item: file, type: 'file' } }
 function deleteFolder(folder: DirectoryBase) { deleteTarget.value = { item: folder, type: 'folder' } }
+function renameFile(file: CloudFile) { renameTarget.value = { item: file, type: 'file' } }
+function renameFolder(folder: DirectoryBase) { renameTarget.value = { item: folder, type: 'folder' } }
 function downloadFile(file: CloudFile) {
   store.downloadFile(file.id, file.filename)
   toast.info(`Downloading "${file.filename}"…`)
@@ -310,6 +314,7 @@ const search = ref('')
                     @open="openFolder"
                     @share="shareFolder"
                     @delete="deleteFolder"
+                    @rename="renameFolder"
                     @dropFile="handleDropFileMove"
                     @download="downloadFolderAsZip"
                   />
@@ -333,6 +338,7 @@ const search = ref('')
                     @download="downloadFile"
                     @share="shareFile"
                     @delete="deleteFile"
+                    @rename="renameFile"
                   />
                 </TransitionGroup>
               </div>
@@ -392,6 +398,15 @@ const search = ref('')
       :type="deleteTarget.type"
       @close="deleteTarget = null"
       @deleted="deleteTarget = null"
+    />
+  </Transition>
+
+  <Transition name="fade">
+    <RenameModal
+      v-if="renameTarget"
+      :item="renameTarget.item"
+      :type="renameTarget.type"
+      @close="renameTarget = null"
     />
   </Transition>
 </template>

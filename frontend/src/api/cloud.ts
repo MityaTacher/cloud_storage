@@ -28,6 +28,10 @@ export const cloudApi = {
     return api.patch(`/folders/${uid}?access_level=${access_level}`)
   },
 
+  renameFolder(uid: string, newName: string): Promise<{ data: Directory }> {
+    return api.patch(`/folders/${uid}/rename?new_name=${encodeURIComponent(newName)}`)
+  },
+
   uploadFile(
     file: File,
     parent_uid: string | null,
@@ -68,6 +72,10 @@ export const cloudApi = {
   moveFile(id: number, parent_uid: string | null): Promise<{ data: CloudFile }> {
     const params = parent_uid ? `?parent_uid=${parent_uid}` : ''
     return api.patch(`/files/${id}/move${params}`)
+  },
+
+  renameFile(id: number, newName: string): Promise<{ data: CloudFile }> {
+    return api.patch(`/files/${id}/rename?new_name=${encodeURIComponent(newName)}`)
   },
 
   getPublicFileUrl(uid: string): string {

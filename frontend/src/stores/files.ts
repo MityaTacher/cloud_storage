@@ -89,6 +89,13 @@ export const useFileStore = defineStore('files', () => {
     }
   }
 
+  async function renameFolder(uid: string, newName: string) {
+    const { data } = await cloudApi.renameFolder(uid, newName)
+    const folder = folders.value.find((f) => f.uid === uid)
+    if (folder) folder.name = data.name
+    return data
+  }
+
   // Обновлен: принимает целевую папку, чтобы можно было загружать файлы в подпапки рекурсивно
   async function uploadFile(file: File, overrideParentUid?: string | null) {
     const targetUid = overrideParentUid !== undefined ? overrideParentUid : currentFolderUid.value
@@ -137,6 +144,13 @@ export const useFileStore = defineStore('files', () => {
   async function moveFile(id: number, targetFolderUid: string | null) {
     await cloudApi.moveFile(id, targetFolderUid)
     files.value = files.value.filter((f) => f.id !== id)
+  }
+
+  async function renameFile(id: number, newName: string) {
+    const { data } = await cloudApi.renameFile(id, newName)
+    const file = files.value.find((f) => f.id === id)
+    if (file) file.filename = data.filename
+    return data
   }
 
   function downloadFile(id: number, filename?: string) {
@@ -196,10 +210,12 @@ export const useFileStore = defineStore('files', () => {
     createFolder,
     deleteFolder,
     patchFolderAccess,
+    renameFolder,
     uploadFile,
     deleteFile,
     patchFileAccess,
     moveFile,
+    renameFile,
     downloadFile,
     downloadFolder,
   }

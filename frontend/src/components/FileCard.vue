@@ -10,6 +10,7 @@ const emit = defineEmits<{
   download: [file: CloudFile]
   share: [file: CloudFile]
   delete: [file: CloudFile]
+  rename: [file: CloudFile]
 }>()
 
 const icon = computed(() => {
@@ -59,6 +60,9 @@ function onDragStart(e: DragEvent) {
     <div class="file-actions">
       <button class="icon-btn" @click.stop="emit('download', file)" :title="'Download ' + file.filename" :id="`download-file-${file.id}`">
         <i class="pi pi-download" />
+      </button>
+      <button class="icon-btn" @click.stop="emit('rename', file)" :title="'Rename ' + file.filename" :id="`rename-file-${file.id}`">
+        <i class="pi pi-pencil" />
       </button>
       <button class="icon-btn" @click.stop="emit('share', file)" :title="'Share ' + file.filename" :id="`share-file-${file.id}`">
         <i class="pi pi-share-alt" />

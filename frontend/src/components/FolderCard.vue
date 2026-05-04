@@ -10,6 +10,7 @@ const emit = defineEmits<{
   delete: [folder: DirectoryBase]
   dropFile: [fileId: number, folderUid: string]
   download: [folder: DirectoryBase]
+  rename: [folder: DirectoryBase]
 }>()
 
 const isDragOver = ref(false)
@@ -51,6 +52,9 @@ function onDrop(e: DragEvent) {
       </button>
       <button class="icon-btn" @click.stop="emit('open', folder)" :title="`Open ${folder.name}`" :id="`open-folder-${folder.uid}`">
         <i class="pi pi-arrow-right" />
+      </button>
+      <button class="icon-btn" @click.stop="emit('rename', folder)" :title="`Rename ${folder.name}`" :id="`rename-folder-${folder.uid}`">
+        <i class="pi pi-pencil" />
       </button>
       <button class="icon-btn" @click.stop="emit('share', folder)" :title="`Share ${folder.name}`" :id="`share-folder-${folder.uid}`">
         <i class="pi pi-share-alt" />
