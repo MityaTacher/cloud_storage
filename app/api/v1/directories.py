@@ -1,19 +1,26 @@
+import os
 import uuid
 
+from fastapi import status, APIRouter, BackgroundTasks
 from fastapi.params import Depends
+from fastapi.responses import FileResponse
 
-from app.crud.user import get_current_user
-
-from fastapi import status, APIRouter
-
-from app.db.session import get_async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import get_async_session
+from app.crud.user import get_current_user
 from app.models import UserModel
 from app.schemas import DirectorySchema
 
-from app.crud.directory import create_new_directory, get_directory, delete_directory, change_directory_access_level, \
-    get_public_directory
+from app.crud.directory import (
+    create_new_directory, 
+    get_directory, 
+    delete_directory, 
+    change_directory_access_level, 
+    get_public_directory,
+    save_public_directory_to_cloud,
+    generate_directory_zip
+)
 
 router = APIRouter(
     prefix='/folders',
@@ -77,3 +84,41 @@ async def get_public_directory_endpoint(
         db: AsyncSession = Depends(get_async_session)
 ):
     return await get_public_directory(public_link, db)
+
+
+@router.post('/public/{public_link}/save', status_code=status.HTTP_201_CREATED, response_model=DirectorySchema)
+async def save_public_directory_endpoint(
+        public_link: uuid.UUID,
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
+):
+    """
+    AUTHORIZED ONLY
+    Сохранить публичную папку (со всеми вложениями) в свое облако
+    """
+    return await save_public_directory_to_cloud(public_link, db, user)
+
+
+@router.get('/{directory_uid}/download', status_code=status.HTTP_200_OK, response_class=FileResponse)
+async def download_directory_endpoint(
+        directory_uid: uuid.UUID,
+        background_tasks: BackgroundTasks,
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
+):
+    """Скачать приватную папку архивом"""
+    temp_path, dir_name = await generate_directory_zip(directory_uid, db, user=user)
+    background_tasks.add_task(os.remove, temp_path)
+    return FileResponse(path=temp_path, filename=f"{dir_name}.zip", media_type='application/zip')
+
+
+@router.get('/public/{public_link}/download', status_code=status.HTTP_200_OK, response_class=FileResponse)
+async def download_public_directory_endpoint(
+        public_link: uuid.UUID,
+        background_tasks: BackgroundTasks,
+        db: AsyncSession = Depends(get_async_session)
+):
+    """Скачать публичную папку архивом"""
+    temp_path, dir_name = await generate_directory_zip(public_link, db, is_public=True)
+    background_tasks.add_task(os.remove, temp_path)
+    return FileResponse(path=temp_path, filename=f"{dir_name}.zip", media_type='application/zip')

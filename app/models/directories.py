@@ -49,7 +49,7 @@ class Directory(Base):
         back_populates='parent',
         cascade='all, delete-orphan'
     )
-    public_link: Mapped[uuid.UUID] = mapped_column(UUID, default=uuid.uuid4(), nullable=False)
+    public_link: Mapped[uuid.UUID] = mapped_column(UUID, default=lambda: uuid.uuid4(), nullable=False)
     access_level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

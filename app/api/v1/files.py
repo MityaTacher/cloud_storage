@@ -16,7 +16,9 @@ from app.crud.file import (
     download_file,
     change_access_level,
     download_public_file,
-    get_public_file
+    get_public_file,
+    move_file,
+    save_public_file_to_cloud
 )
 
 from app.crud.user import get_current_user, get_current_admin
@@ -131,3 +133,29 @@ async def change_access_level_endpoint(
     """
     return await change_access_level(file_id, access_level, db, user)
 
+
+@router.patch('/{file_id}/move', status_code=status.HTTP_200_OK, response_model=FileSchema)
+async def move_file_endpoint(
+        file_id: int,
+        parent_uid: uuid.UUID | None = None,
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
+):
+    """
+    USER ONLY
+    Переместить файл в другую директорию
+    """
+    return await move_file(file_id, parent_uid, db, user)
+
+
+@router.post('/public/{uid}/save', status_code=status.HTTP_201_CREATED, response_model=FileSchema)
+async def save_public_file_endpoint(
+        uid: uuid.UUID,
+        db: AsyncSession = Depends(get_async_session),
+        user: UserModel = Depends(get_current_user)
+):
+    """
+    AUTHORIZED ONLY
+    Сохранить публичный файл в свое облако (в корневую папку)
+    """
+    return await save_public_file_to_cloud(uid, db, user)

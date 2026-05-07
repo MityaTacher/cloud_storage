@@ -1,5 +1,6 @@
 import os
 import uuid
+import shutil
 
 from fastapi import HTTPException, status, UploadFile
 from fastapi.responses import FileResponse
@@ -86,13 +87,36 @@ async def create_file(
 
     await check_directory_is_exist(parent_uid, user, session)
 
+    # Проверка на существование файла с таким же именем в текущей папке
+    existing_file = await session.scalars(
+        select(FileModel)
+        .where(FileModel.user_id == user.id)
+        .where(FileModel.parent_uid == parent_uid)
+        .where(FileModel.filename == file.filename)
+    )
+    if existing_file.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'File "{file.filename}" already exists in this folder'
+        )
+
+    parent_access = 0
+    if parent_uid:
+        tmp = await session.scalars(
+            select(DirectoryModel).where(DirectoryModel.uid == parent_uid)
+        )
+        parent_dir = tmp.first()
+        if parent_dir:
+            parent_access = parent_dir.access_level
+
     saved_file = await save_file(file, parent_uid=parent_uid)
     db_file = FileModel(
         user_id=user.id,
         filename=saved_file.filename,
         path=saved_file.filepath,
         size_bytes=saved_file.size_bytes,
-        parent_uid=saved_file.parent_uid
+        parent_uid=saved_file.parent_uid,
+        access_level=parent_access,
     )
     session.add(db_file)
     await session.commit()
@@ -155,16 +179,16 @@ async def download_public_file(
         file_uid: uuid.UUID,
         session: AsyncSession
 ) -> FileResponse:
-
     tmp = await session.scalars(
-        select(FileModel).
-        where(FileModel.uid == file_uid)
+        select(FileModel)
+        .where(FileModel.uid == file_uid)
+        .where(FileModel.access_level == 1)
     )
     db_file = tmp.first()
     if db_file is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='File not found'
+            detail='File not found or not public'
         )
 
     return FileResponse(
@@ -172,17 +196,6 @@ async def download_public_file(
         filename=db_file.filename,
         media_type='application/octet-stream'
     )
-
-
-async def generate_public_link(
-        file: FileModel,
-        session: AsyncSession
-) -> uuid.UUID:
-    link = uuid.uuid4()
-    file.public_link = link
-    file.access_level = 1
-    await session.commit()
-    return link
 
 
 async def change_access_level(
@@ -206,3 +219,65 @@ async def change_access_level(
     return 'unknown error'
 
 
+async def move_file(
+        file_id: int,
+        parent_uid: uuid.UUID | None,
+        session: AsyncSession,
+        user: UserModel
+) -> FileModel:
+    db_file = await check_file_permission(file_id, session, user)
+    await check_directory_is_exist(parent_uid, user, session)
+    
+    db_file.parent_uid = parent_uid
+    
+    if parent_uid:
+        tmp = await session.scalars(select(DirectoryModel).where(DirectoryModel.uid == parent_uid))
+        parent_dir = tmp.first()
+        if parent_dir:
+            db_file.access_level = parent_dir.access_level
+    else:
+        db_file.access_level = 0 
+
+    await session.commit()
+    await session.refresh(db_file)
+    return db_file
+
+
+async def save_public_file_to_cloud(
+        file_uid: uuid.UUID,
+        session: AsyncSession,
+        user: UserModel
+) -> FileModel:
+    from app.core.config import settings
+    
+    db_file = await get_public_file(file_uid, session)
+    
+    # Проверка на существование файла в корневой директории пользователя
+    existing_file = await session.scalars(
+        select(FileModel)
+        .where(FileModel.user_id == user.id)
+        .where(FileModel.parent_uid.is_(None))
+        .where(FileModel.filename == db_file.filename)
+    )
+    if existing_file.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'File "{db_file.filename}" already saved to your My Cloud'
+        )
+    
+    new_safe_name = f"{uuid.uuid4()}_{db_file.filename}"
+    new_filepath = os.path.join(settings.upload_dir, new_safe_name)
+    shutil.copy2(db_file.path, new_filepath)
+    
+    new_db_file = FileModel(
+        user_id=user.id,
+        filename=db_file.filename,
+        path=new_filepath,
+        size_bytes=db_file.size_bytes,
+        parent_uid=None,
+        access_level=0 
+    )
+    session.add(new_db_file)
+    await session.commit()
+    await session.refresh(new_db_file)
+    return new_db_file
