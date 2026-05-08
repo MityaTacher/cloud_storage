@@ -21,7 +21,7 @@ export const useFileStore = defineStore('files', () => {
 
   function setContents(data: DirectoryRoot) {
     folders.value = data.children
-    files.value = data.files
+    files.value = data.files.filter(f => f.status === 'READY')
   }
 
   async function loadRoot() {
@@ -89,7 +89,6 @@ export const useFileStore = defineStore('files', () => {
     }
   }
 
-  // Обновлен: принимает целевую папку, чтобы можно было загружать файлы в подпапки рекурсивно
   async function uploadFile(file: File, overrideParentUid?: string | null) {
     const targetUid = overrideParentUid !== undefined ? overrideParentUid : currentFolderUid.value
     const taskId = crypto.randomUUID()
@@ -102,7 +101,6 @@ export const useFileStore = defineStore('files', () => {
         if (t) t.progress = pct
       })
       
-      // Добавляем визуально, только если мы прямо сейчас смотрим в эту же папку
       if (targetUid === currentFolderUid.value) {
         files.value.push(data)
       }
@@ -139,23 +137,34 @@ export const useFileStore = defineStore('files', () => {
     files.value = files.value.filter((f) => f.id !== id)
   }
 
+  async function renameFile(id: number, newName: string) {
+    const { data } = await cloudApi.renameFile(id, newName)
+    const f = files.value.find(x => x.id === id)
+    if (f) f.filename = data.filename
+  }
+
+  async function renameFolder(uid: string, newName: string) {
+    const { data } = await cloudApi.renameFolder(uid, newName)
+    const f = folders.value.find(x => x.uid === uid)
+    if (f) f.name = data.name
+  }
+
   function downloadFile(id: number, filename?: string) {
     const url = cloudApi.getFileDownloadUrl(id)
     const token = localStorage.getItem('access_token')
 
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.blob()
+        if (r.status === 307 || r.ok) return r.url;
+        throw new Error(`HTTP ${r.status}`)
       })
-      .then((blob) => {
+      .then((finalUrl) => {
         const link = document.createElement('a')
-        link.href = URL.createObjectURL(blob)
+        link.href = finalUrl
         link.download = filename ?? files.value.find((x) => x.id === id)?.filename ?? 'download'
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        setTimeout(() => URL.revokeObjectURL(link.href), 60_000)
       })
       .catch((e) => console.error('Download failed', e))
   }
@@ -200,6 +209,8 @@ export const useFileStore = defineStore('files', () => {
     deleteFile,
     patchFileAccess,
     moveFile,
+    renameFile,
+    renameFolder,
     downloadFile,
     downloadFolder,
   }

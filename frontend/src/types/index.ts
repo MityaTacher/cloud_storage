@@ -7,6 +7,29 @@ export interface User {
   registered_at: string
 }
 
+export interface StorageNode {
+  id: number
+  name: string
+  address: string
+  total_space_bytes: number
+  free_space_bytes: number
+  rx_bytes_per_sec: number
+  tx_bytes_per_sec: number
+  cpu_percent: number
+  ram_percent: number
+  last_heartbeat: string
+}
+
+export interface AdminUser extends User {
+  used_bytes: number
+}
+
+export interface AdminDashboardData {
+  global: { total_files: number; total_size_bytes: number; total_public_links: number }
+  file_types: Record<string, number>
+  users: AdminUser[]
+}
+
 export interface TokenResponse {
   access_token: string
   refresh_token: string

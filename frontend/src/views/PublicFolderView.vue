@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { cloudApi } from '@/api/cloud'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
-import type { Directory, CloudFile } from '@/types'
+import type { Directory, CloudFile, DirectoryBase } from '@/types'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -15,8 +15,11 @@ const folder = ref<Directory | null>(null)
 const breadcrumbs = ref<Directory[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+
+// Состояния загрузки
 const savingFileIds = ref<Set<number>>(new Set())
 const savingFolder = ref(false)
+const savingFolderIds = ref<Set<string>>(new Set())
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -61,6 +64,18 @@ async function saveFolderToMyCloud() {
     toast.error(e?.response?.data?.detail ?? 'Failed to save folder')
   } finally {
     savingFolder.value = false
+  }
+}
+
+async function saveSubfolderToMyCloud(childFolder: DirectoryBase) {
+  savingFolderIds.value.add(childFolder.uid)
+  try {
+    await cloudApi.savePublicFolder(childFolder.public_link)
+    toast.success(`Folder "${childFolder.name}" saved to your cloud!`)
+  } catch (e: any) {
+    toast.error(e?.response?.data?.detail ?? `Failed to save "${childFolder.name}"`)
+  } finally {
+    savingFolderIds.value.delete(childFolder.uid)
   }
 }
 
@@ -208,10 +223,28 @@ onMounted(() => {
               <span style="flex:1;font-size:14px;font-weight:500;color:var(--color-text-primary)">
                 {{ child.name }}
               </span>
-              <span
-                v-if="child.access_level === 1"
-                class="badge badge-public"
-              >Public</span>
+              
+              <template v-if="child.access_level === 1">
+                <button 
+                  v-if="auth.isAuthenticated"
+                  @click.stop="saveSubfolderToMyCloud(child)" 
+                  class="btn btn-sm btn-ghost" 
+                  :disabled="savingFolderIds.has(child.uid)"
+                  title="Save to My Cloud"
+                >
+                  <span v-if="savingFolderIds.has(child.uid)" class="spinner" style="width:12px;height:12px;border-top-color:var(--color-accent)"></span>
+                  <i v-else class="pi pi-cloud-download" />
+                </button>
+                
+                <a
+                  :href="cloudApi.getPublicFolderDirectDownload(child.public_link)"
+                  @click.stop
+                  class="btn btn-sm btn-primary"
+                  download
+                >
+                  <i class="pi pi-download" /> Download
+                </a>
+              </template>
               <span v-else class="badge badge-private">Private</span>
             </div>
           </div>

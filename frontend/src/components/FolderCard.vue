@@ -8,6 +8,7 @@ const emit = defineEmits<{
   open: [folder: DirectoryBase]
   share: [folder: DirectoryBase]
   delete: [folder: DirectoryBase]
+  rename: [folder: DirectoryBase]
   dropFile: [fileId: number, folderUid: string]
   download: [folder: DirectoryBase]
 }>()
@@ -54,6 +55,9 @@ function onDrop(e: DragEvent) {
       </button>
       <button class="icon-btn" @click.stop="emit('share', folder)" :title="`Share ${folder.name}`" :id="`share-folder-${folder.uid}`">
         <i class="pi pi-share-alt" />
+      </button>
+      <button class="icon-btn" @click.stop="emit('rename', folder)" :title="`Rename ${folder.name}`">
+        <i class="pi pi-pencil" />
       </button>
       <button class="icon-btn danger" @click.stop="emit('delete', folder)" :title="`Delete ${folder.name}`" :id="`delete-folder-${folder.uid}`">
         <i class="pi pi-trash" />

@@ -13,6 +13,7 @@ import FolderCard from '@/components/FolderCard.vue'
 import NewFolderModal from '@/components/NewFolderModal.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import DeleteModal from '@/components/DeleteModal.vue'
+import RenameModal from '@/components/RenameModal.vue'
 
 const store = useFileStore()
 const toast = useToastStore()
@@ -22,6 +23,7 @@ const theme = useThemeStore()
 const showNewFolder = ref(false)
 const shareTarget = ref<{ item: CloudFile | DirectoryBase; type: 'file' | 'folder' } | null>(null)
 const deleteTarget = ref<{ item: CloudFile | DirectoryBase; type: 'file' | 'folder' } | null>(null)
+const renameTarget = ref<{ item: CloudFile | DirectoryBase; type: 'file' | 'folder' } | null>(null)
 
 // ── Drag-and-drop ──
 const dragOver = ref(false)
@@ -41,48 +43,23 @@ function getErrorMsg(err: any, fallback: string): string {
   return err?.message || fallback
 }
 
-// ── File upload handlers ──
+// ── File upload triggers ──
 function triggerUpload() { fileInputRef.value?.click() }
 function triggerFolderUpload() { folderInputRef.value?.click() }
 
-async function handleFileInput(e: Event) {
-  const input = e.target as HTMLInputElement
-  if (!input.files?.length) return
-  const files = Array.from(input.files)
-  
-  try {
-    for (const file of files) {
-      try {
-        await store.uploadFile(file)
-        toast.success(`"${file.name}" uploaded`)
-      } catch (err: any) {
-        toast.error(getErrorMsg(err, `Failed to upload "${file.name}"`))
-      }
-    }
-  } finally {
-    input.value = '' // Очищаем только в самом конце
+// ── Безопасное обрезание имени файла для предотвращения 500 ошибки (max_length=50 в Pydantic) ──
+function truncateFilename(name: string, maxLength: number = 45): string {
+  if (name.length <= maxLength) return name
+  const lastDotIdx = name.lastIndexOf('.')
+  if (lastDotIdx === -1 || lastDotIdx === 0) {
+    return name.substring(0, maxLength)
   }
-}
-
-function handleGlobalDragEnter(e: DragEvent) {
-  if (e.dataTransfer?.types.includes('Files')) {
-    dragOver.value = true
+  const ext = name.substring(lastDotIdx)
+  const namePart = name.substring(0, lastDotIdx)
+  if (ext.length >= maxLength) {
+    return name.substring(0, maxLength)
   }
-}
-
-async function onDrop(e: DragEvent) {
-  dragOver.value = false
-  const files = Array.from(e.dataTransfer?.files ?? [])
-  if (!files.length) return
-
-  for (const file of files) {
-    try {
-      await store.uploadFile(file)
-      toast.success(`"${file.name}" uploaded`)
-    } catch (err: any) {
-      toast.error(getErrorMsg(err, `Failed to upload "${file.name}"`))
-    }
-  }
+  return namePart.substring(0, maxLength - ext.length) + ext
 }
 
 // ── Автоматическое создание папок при загрузке ──
@@ -91,7 +68,6 @@ async function getOrCreateFolder(name: string, parentUid: string | null): Promis
     const { data } = await cloudApi.createFolder(name, parentUid)
     return data.uid
   } catch (e: any) {
-    // Если папка уже существует (Конфликт 409), достаем её UID
     if (e.response?.status === 409) {
       let contents
       if (parentUid) {
@@ -108,71 +84,188 @@ async function getOrCreateFolder(name: string, parentUid: string | null): Promis
   }
 }
 
+// ── Продвинутая обработка: сначала структура папок, затем файлы с лимитом потоков ──
+async function processFilesWithPaths(filesToProcess: { file: File, path: string }[]) {
+  if (!filesToProcess.length) return
+
+  toast.info(`Preparing to upload ${filesToProcess.length} file(s)...`)
+
+  // Шаг 1: Собираем уникальные пути к папкам
+  const folderPaths = new Set<string>()
+  for (const item of filesToProcess) {
+    if (item.path.includes('/')) {
+      const parts = item.path.split('/')
+      let acc = ''
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc ? `${acc}/${parts[i]}` : parts[i]
+        folderPaths.add(acc)
+      }
+    }
+  }
+
+  // Шаг 2: Создаем папки строго по очереди (чтобы не заблокировать БД)
+  const folderUidCache = new Map<string, string | null>()
+  const sortedFolders = Array.from(folderPaths).sort() 
+  
+  for (const path of sortedFolders) {
+    const parts = path.split('/')
+    const name = parts[parts.length - 1]
+    const parentPath = parts.slice(0, -1).join('/')
+    const parentUid = folderUidCache.has(parentPath) ? folderUidCache.get(parentPath)! : store.currentFolderUid
+
+    try {
+      // Обрезаем слишком длинные имена папок на всякий случай
+      const safeFolderName = name.substring(0, 45)
+      const newUid = await getOrCreateFolder(safeFolderName, parentUid)
+      folderUidCache.set(path, newUid)
+    } catch (err) {
+      console.error(`Failed to create folder ${path}`, err)
+      folderUidCache.set(path, parentUid) // Фолбэк на родителя
+    }
+  }
+
+  // Шаг 3: Загрузка файлов с лимитом параллельных потоков (спасает от исчерпания пула БД)
+  const CONCURRENCY = 2 // Не более 2 файлов одновременно
+  let active = 0
+  let index = 0
+
+  await new Promise<void>((resolve) => {
+    const next = async () => {
+      if (index >= filesToProcess.length) {
+        if (active === 0) resolve()
+        return
+      }
+
+      const item = filesToProcess[index++]
+      active++
+
+      const parts = item.path.split('/')
+      const parentPath = parts.slice(0, -1).join('/')
+      const targetUid = parts.length > 1 ? folderUidCache.get(parentPath) : store.currentFolderUid
+
+      // Обязательно обрезаем длинные имена файлов, иначе бэкенд Pydantic кинет 500 ошибку!
+      const safeName = truncateFilename(item.file.name)
+      const fileToUpload = safeName === item.file.name 
+        ? item.file 
+        : new File([item.file], safeName, { type: item.file.type })
+
+      try {
+        await store.uploadFile(fileToUpload, targetUid || null)
+      } catch (err: any) {
+        toast.error(getErrorMsg(err, `Failed to upload "${fileToUpload.name}"`))
+      } finally {
+        active--
+        next() // Запускаем следующий файл
+      }
+    }
+
+    for (let i = 0; i < CONCURRENCY && i < filesToProcess.length; i++) {
+      next()
+    }
+  })
+
+  toast.success('Upload complete!')
+  
+  // Обновляем текущую директорию
+  if (store.currentFolderUid) {
+     const currentCrumb = store.breadcrumbs[store.breadcrumbs.length - 1]
+     store.openFolder(store.currentFolderUid, currentCrumb.name)
+  } else {
+     store.loadRoot()
+  }
+}
+
+// ── Input handlers ──
+async function handleFileInput(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files?.length) return
+  const files = Array.from(input.files).map(f => ({ file: f, path: f.name }))
+  await processFilesWithPaths(files)
+  input.value = ''
+}
+
 async function handleFolderInput(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files?.length) return
-  
-  const files = Array.from(input.files)
-  toast.info(`Preparing to upload ${files.length} file(s) from folder...`)
-  
-  // Кэшируем ID созданных директорий, чтобы не делать лишних API запросов
-  const folderUidCache = new Map<string, string | null>()
+  const files = Array.from(input.files).map(f => ({
+    file: f,
+    path: f.webkitRelativePath || f.name 
+  }))
+  await processFilesWithPaths(files)
+  input.value = ''
+}
 
-  try {
-    // Проходим по каждому файлу СТРОГО последовательно
-    for (const file of files) {
-      const path = file.webkitRelativePath
-      
-      // На всякий случай: если браузер не поддерживает webkitRelativePath
-      if (!path) {
-        try {
-          await store.uploadFile(file)
-        } catch (err: any) {
-          toast.error(getErrorMsg(err, `Failed to upload "${file.name}"`))
-        }
-        continue
-      }
+// ── Drag & Drop handlers ──
+function handleGlobalDragEnter(e: DragEvent) {
+  if (e.dataTransfer?.types.includes('Files')) {
+    dragOver.value = true
+  }
+}
 
-      const parts = path.split('/')
-      const folderParts = parts.slice(0, -1) // Все части, кроме самого файла
-      
-      let currentParentUid = store.currentFolderUid
-      let currentPathAcc = ''
+// Рекурсивное чтение директории при Drag & Drop
+async function scanEntry(entry: any, path = ''): Promise<{file: File, path: string}[]> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file(
+        (file: File) => resolve([{ file, path: path + file.name }]), 
+        () => resolve([]) // Игнорируем ошибки (например системные скрытые файлы)
+      ) 
+    })
+  } else if (entry.isDirectory) {
+    const dirReader = entry.createReader()
+    let allEntries: any[] = []
 
-      try {
-        // Идем по каждой вложенной папке и последовательно создаем их
-        for (const part of folderParts) {
-          currentPathAcc = currentPathAcc ? `${currentPathAcc}/${part}` : part
-          
-          if (folderUidCache.has(currentPathAcc)) {
-            currentParentUid = folderUidCache.get(currentPathAcc)!
-          } else {
-            const newUid = await getOrCreateFolder(part, currentParentUid)
-            folderUidCache.set(currentPathAcc, newUid)
-            currentParentUid = newUid
-          }
-        }
+    const readBatch = () => {
+      return new Promise<any[]>((resolve) => {
+        dirReader.readEntries(resolve, () => resolve([]))
+      })
+    }
 
-        // Загружаем сам файл строго после того, как папка создана
-        await store.uploadFile(file, currentParentUid)
-        
-      } catch (err: any) {
-        toast.error(getErrorMsg(err, `Failed to process "${file.name}"`))
+    let entries: any[]
+    do {
+      entries = await readBatch()
+      allEntries = allEntries.concat(entries)
+    } while (entries.length > 0)
+
+    let results: {file: File, path: string}[] = []
+    for (const e of allEntries) {
+      const subResults = await scanEntry(e, path + entry.name + '/')
+      results = results.concat(subResults)
+    }
+    return results
+  }
+  return []
+}
+
+async function onDrop(e: DragEvent) {
+  dragOver.value = false
+  const items = e.dataTransfer?.items
+
+  if (!items) {
+    const flatFiles = Array.from(e.dataTransfer?.files ?? []).map(f => ({ file: f, path: f.name }))
+    if (flatFiles.length) await processFilesWithPaths(flatFiles)
+    return
+  }
+
+  let allFiles: {file: File, path: string}[] = []
+
+  // Рекурсивно сканируем сброшенные элементы
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind === 'file') {
+      const entry = (item as any).webkitGetAsEntry()
+      if (entry) {
+        const scanned = await scanEntry(entry)
+        allFiles = allFiles.concat(scanned)
+      } else {
+        const file = item.getAsFile()
+        if (file) allFiles.push({ file, path: file.name })
       }
     }
-    
-    toast.success('Folder upload complete!')
-  } finally {
-    // Очищаем input только после окончания всех загрузок
-    input.value = ''
-    
-    // Обновляем текущую директорию чтобы подтянуть новые папки и файлы визуально
-    if (store.currentFolderUid) {
-       const currentCrumb = store.breadcrumbs[store.breadcrumbs.length - 1]
-       store.openFolder(store.currentFolderUid, currentCrumb.name)
-    } else {
-       store.loadRoot()
-    }
+  }
+
+  if (allFiles.length) {
+    await processFilesWithPaths(allFiles)
   }
 }
 
@@ -195,6 +288,8 @@ function shareFile(file: CloudFile) { shareTarget.value = { item: file, type: 'f
 function shareFolder(folder: DirectoryBase) { shareTarget.value = { item: folder, type: 'folder' } }
 function deleteFile(file: CloudFile) { deleteTarget.value = { item: file, type: 'file' } }
 function deleteFolder(folder: DirectoryBase) { deleteTarget.value = { item: folder, type: 'folder' } }
+function renameFile(file: CloudFile) { renameTarget.value = { item: file, type: 'file' } }
+function renameFolder(folder: DirectoryBase) { renameTarget.value = { item: folder, type: 'folder' } }
 function downloadFile(file: CloudFile) {
   store.downloadFile(file.id, file.filename)
   toast.info(`Downloading "${file.filename}"…`)
@@ -247,23 +342,9 @@ const search = ref('')
           <i :class="['pi pi-refresh', { spinning: store.loading }]" />
         </button>
 
-        <!-- Input для файлов -->
-        <input
-          ref="fileInputRef"
-          type="file"
-          multiple
-          style="display:none"
-          @change="handleFileInput"
-        />
-        <!-- Input с атрибутом webkitdirectory для загрузки папок целиком -->
-        <input
-          ref="folderInputRef"
-          type="file"
-          webkitdirectory
-          multiple
-          style="display:none"
-          @change="handleFolderInput"
-        />
+        <!-- Inputs -->
+        <input ref="fileInputRef" type="file" multiple style="display:none" @change="handleFileInput" />
+        <input ref="folderInputRef" type="file" webkitdirectory multiple style="display:none" @change="handleFolderInput" />
       </header>
 
       <!-- Drop zone overlay -->
@@ -281,7 +362,7 @@ const search = ref('')
           >
             <div style="text-align:center;color:var(--color-accent-light)">
               <div style="font-size:48px;margin-bottom:12px">📂</div>
-              <div style="font-size:18px;font-weight:700">Drop files to upload</div>
+              <div style="font-size:18px;font-weight:700">Drop files or folders to upload</div>
             </div>
           </div>
         </Transition>
@@ -310,6 +391,7 @@ const search = ref('')
                     @open="openFolder"
                     @share="shareFolder"
                     @delete="deleteFolder"
+                    @rename="renameFolder"
                     @dropFile="handleDropFileMove"
                     @download="downloadFolderAsZip"
                   />
@@ -333,6 +415,7 @@ const search = ref('')
                     @download="downloadFile"
                     @share="shareFile"
                     @delete="deleteFile"
+                    @rename="renameFile"
                   />
                 </TransitionGroup>
               </div>
@@ -345,7 +428,7 @@ const search = ref('')
             >
               <div class="empty-state-icon">☁️</div>
               <div class="empty-state-title">This folder is empty</div>
-              <p class="empty-state-text">Drop files here or click to upload</p>
+              <p class="empty-state-text">Drop files or folders here to upload</p>
               <div style="display:flex; gap: 10px; margin-top:8px">
                 <button class="btn btn-primary" @click.stop="triggerUpload">
                   <i class="pi pi-file" /> Upload files
@@ -392,6 +475,15 @@ const search = ref('')
       :type="deleteTarget.type"
       @close="deleteTarget = null"
       @deleted="deleteTarget = null"
+    />
+  </Transition>
+
+  <Transition name="fade">
+    <RenameModal
+      v-if="renameTarget"
+      :item="renameTarget.item"
+      :type="renameTarget.type"
+      @close="renameTarget = null"
     />
   </Transition>
 </template>
