@@ -27,6 +27,11 @@ function logout() {
         <i class="pi pi-home nav-icon" />
         My Cloud
       </router-link>
+
+      <router-link v-if="auth.isAdmin" to="/admin" class="sidebar-nav-item" active-class="active">
+        <i class="pi pi-users nav-icon" style="color:var(--color-warning)" />
+        Admin Panel
+      </router-link>
     </nav>
 
     <!-- Footer -->
