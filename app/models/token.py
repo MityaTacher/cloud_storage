@@ -1,10 +1,13 @@
 from app.db.base import Base
-from app.models import UserModel
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, ForeignKey, DateTime, func, Boolean, text
 
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.users import User
 
 
 class RefreshToken(Base):
@@ -18,6 +21,4 @@ class RefreshToken(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text('false'))
     jti: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
 
-    user: Mapped['UserModel'] = relationship('User', back_populates='refresh_tokens')
-
-
+    user: Mapped['User'] = relationship('User', back_populates='refresh_tokens')
