@@ -6,7 +6,8 @@ pydantic
 pydantic[email]
 asyncpg
 alembic
-passlib
+bcrypt
 aiofiles
 python-multipart
 pyjwt
+httpx
