@@ -6,13 +6,13 @@ export const authApi = {
     const params = new URLSearchParams()
     params.append('username', form.username)
     params.append('password', form.password)
-    return api.post('/users/token', params, {
+    return api.post('/v1/users/token', params, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
   },
 
   register(form: RegisterForm): Promise<{ data: User }> {
-    return api.post('/users/', {
+    return api.post('/v1/users/', {
       email: form.email,
       username: form.username,
       password: form.password,
@@ -20,6 +20,6 @@ export const authApi = {
   },
 
   refresh(token: string): Promise<{ data: TokenResponse }> {
-    return api.post('/users/refresh', { token })
+    return api.post('/v1/users/refresh', { token })
   },
 }

@@ -31,6 +31,10 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
+    if (originalRequest.url?.includes('/v1/users/token')) {
+      return Promise.reject(error)
+    }
+
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
@@ -50,12 +54,14 @@ api.interceptors.response.use(
       if (!refreshToken) {
         isRefreshing = false
         localStorage.clear()
-        window.location.href = '/login'
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+          window.location.href = '/login'
+        }
         return Promise.reject(error)
       }
 
       try {
-        const { data } = await axios.post('/api/users/refresh', { token: refreshToken })
+        const { data } = await axios.post('/api/v1/users/refresh', { token: refreshToken })
         localStorage.setItem('access_token', data.access_token)
         localStorage.setItem('refresh_token', data.refresh_token)
         api.defaults.headers.common.Authorization = `Bearer ${data.access_token}`
@@ -65,7 +71,9 @@ api.interceptors.response.use(
       } catch (err) {
         processQueue(err, null)
         localStorage.clear()
-        window.location.href = '/login'
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+          window.location.href = '/login'
+        }
         return Promise.reject(err)
       } finally {
         isRefreshing = false

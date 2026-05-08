@@ -22,6 +22,13 @@ const router = createRouter({
       component: () => import('@/views/DashboardView.vue'),
       meta: { requiresAuth: true },
     },
+    // НОВЫЙ МАРШРУТ
+    {
+      path: '/admin',
+      name: 'Admin',
+      component: () => import('@/views/AdminView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
     {
       path: '/share/file/:uid',
       name: 'PublicFile',
@@ -47,6 +54,12 @@ router.beforeEach((to, _from, next) => {
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return next({ name: 'Login' })
   }
+  
+  // ЗАЩИТА АДМИНКИ
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    return next({ name: 'Dashboard' })
+  }
+
   if (to.meta.guest && auth.isAuthenticated) {
     return next({ name: 'Dashboard' })
   }

@@ -3,6 +3,17 @@ import { ref, computed } from 'vue'
 import { authApi } from '@/api/auth'
 import type { User, LoginForm, RegisterForm } from '@/types'
 
+// Функция для чтения JWT токена
+function parseJwt(token: string) {
+  try {
+    const base64Url = token.split('.')[1]
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    return JSON.parse(window.atob(base64))
+  } catch (e) {
+    return null
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const accessToken = ref<string | null>(localStorage.getItem('access_token'))
@@ -11,6 +22,10 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null)
 
   const isAuthenticated = computed(() => !!accessToken.value)
+  
+  // Достаем роль прямо из токена
+  const tokenPayload = computed(() => accessToken.value ? parseJwt(accessToken.value) : null)
+  const isAdmin = computed(() => tokenPayload.value?.role === 'admin')
 
   function setTokens(access: string, refresh: string) {
     accessToken.value = access
@@ -70,6 +85,7 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     error,
     isAuthenticated,
+    isAdmin, // Экспортируем флаг админа
     login,
     register,
     logout,
